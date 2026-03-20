@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -19,7 +20,9 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { hexFromNpub } from '../services/nostr/identity';
+import useIdentityStore from '../stores/useIdentityStore';
 import useNotesStore from '../stores/useNotesStore';
+import useSyncStore from '../stores/useSyncStore';
 
 export default function ShareDialog({ open, onClose, noteId }) {
   const { notes, shareNote, addWriter, removeWriter } = useNotesStore();
@@ -29,19 +32,44 @@ export default function ShareDialog({ open, onClose, noteId }) {
   const [npubInput, setNpubInput] = useState('');
   const [copied, setCopied] = useState(false);
   const [isPublic, setIsPublic] = useState(note?.isPublic ?? false);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState(false);
+
+  const { identity } = useIdentityStore();
+  const { sync } = useSyncStore();
 
   if (!note) return null;
 
   const handleTogglePublic = async (e) => {
     const val = e.target.checked;
     setIsPublic(val);
-    const url = await shareNote(noteId, val);
-    setShareUrl(url);
+    setPublishing(true);
+    setPublished(false);
+    try {
+      const url = await shareNote(noteId, val);
+      setShareUrl(url);
+      if (identity) {
+        await sync(identity);
+        setPublished(true);
+      }
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const handleGenerateLink = async () => {
-    const url = await shareNote(noteId, isPublic);
-    setShareUrl(url);
+    setPublishing(true);
+    setPublished(false);
+    try {
+      const url = await shareNote(noteId, isPublic);
+      setShareUrl(url);
+      if (identity) {
+        await sync(identity);
+        setPublished(true);
+      }
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const handleCopy = () => {
@@ -124,57 +152,81 @@ export default function ShareDialog({ open, onClose, noteId }) {
               Share link
             </Typography>
             {shareUrl ? (
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  p: 1,
-                  borderRadius: 2,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  bgcolor: 'background.default',
-                }}
-              >
-                <LinkIcon
-                  sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }}
-                />
-                <Typography
-                  variant='caption'
-                  noWrap
+              <Box>
+                <Box
                   sx={{
-                    flex: 1,
-                    fontFamily: 'monospace',
-                    fontSize: '0.7rem',
-                    color: 'text.secondary',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    p: 1,
+                    borderRadius: 2,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    bgcolor: 'background.default',
                   }}
                 >
-                  {shareUrl}
-                </Typography>
-                <Tooltip title={copied ? 'Copied!' : 'Copy link'}>
-                  <IconButton
-                    size='small'
-                    onClick={handleCopy}
-                    sx={{ p: 0.25 }}
+                  <LinkIcon
+                    sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }}
+                  />
+                  <Typography
+                    variant='caption'
+                    noWrap
+                    sx={{
+                      flex: 1,
+                      fontFamily: 'monospace',
+                      fontSize: '0.7rem',
+                      color: 'text.secondary',
+                    }}
                   >
-                    <ContentCopyIcon
-                      sx={{
-                        fontSize: 14,
-                        color: copied ? 'success.main' : 'text.secondary',
-                      }}
-                    />
-                  </IconButton>
-                </Tooltip>
+                    {shareUrl}
+                  </Typography>
+                  <Tooltip title={copied ? 'Copied!' : 'Copy link'}>
+                    <IconButton
+                      size='small'
+                      onClick={handleCopy}
+                      sx={{ p: 0.25 }}
+                    >
+                      <ContentCopyIcon
+                        sx={{
+                          fontSize: 14,
+                          color: copied ? 'success.main' : 'text.secondary',
+                        }}
+                      />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                {/* Publish status */}
+                <Typography
+                  variant='caption'
+                  sx={{
+                    mt: 0.75,
+                    display: 'block',
+                    color: publishing
+                      ? 'text.disabled'
+                      : published
+                        ? 'success.main'
+                        : 'warning.main',
+                  }}
+                >
+                  {publishing
+                    ? '⏳ Publishing to network…'
+                    : published
+                      ? '✅ Published — link is ready to share'
+                      : '⚠️ Not yet published to network'}
+                </Typography>
               </Box>
             ) : (
               <Button
                 variant='outlined'
                 size='small'
-                startIcon={<LinkIcon />}
+                startIcon={
+                  publishing ? <CircularProgress size={14} /> : <LinkIcon />
+                }
                 onClick={handleGenerateLink}
+                disabled={publishing}
                 fullWidth
               >
-                Generate link
+                {publishing ? 'Publishing…' : 'Generate link'}
               </Button>
             )}
           </Box>

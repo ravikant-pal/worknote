@@ -15,6 +15,7 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
+import LinearProgress from '@mui/material/LinearProgress';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ShareDialog from '../components/ShareDialog';
 import Sidebar from '../components/Sidebar/Sidebar';
@@ -27,7 +28,13 @@ export default function NotesPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
-  const { activeNoteId, updateNote, getActiveNote } = useNotesStore();
+  const {
+    activeNoteId,
+    updateNote,
+    getActiveNote,
+    sharedNoteLoading,
+    sharedNoteError,
+  } = useNotesStore();
   const { identity } = useIdentityStore();
   const { sync } = useSyncStore();
 
@@ -237,6 +244,69 @@ export default function NotesPage() {
                 />
               </Box>
             </>
+          ) : sharedNoteLoading ? (
+            /* ── Shared note loading state ── */
+            <Box
+              sx={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 2,
+                px: 4,
+              }}
+            >
+              <Box sx={{ fontSize: 48 }}>🔗</Box>
+              <Typography variant='h3' color='text.primary'>
+                Loading shared note…
+              </Typography>
+              <Typography
+                variant='body2'
+                color='text.secondary'
+                sx={{ textAlign: 'center' }}
+              >
+                Connecting to the network and fetching your note. This usually
+                takes a few seconds.
+              </Typography>
+              <LinearProgress
+                sx={{ width: '100%', maxWidth: 320, borderRadius: 4, mt: 1 }}
+              />
+            </Box>
+          ) : sharedNoteError ? (
+            /* ── Shared note error state ── */
+            <Box
+              sx={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 2,
+                px: 4,
+              }}
+            >
+              <Box sx={{ fontSize: 48 }}>⚠️</Box>
+              <Typography variant='h3' color='text.primary'>
+                Could not load note
+              </Typography>
+              <Typography
+                variant='body2'
+                color='text.secondary'
+                sx={{ textAlign: 'center', maxWidth: 360 }}
+              >
+                {sharedNoteError}
+              </Typography>
+              <Button
+                variant='outlined'
+                onClick={() => {
+                  useNotesStore.getState().setSharedNoteError(null);
+                  navigate('/');
+                }}
+              >
+                Go to my notes
+              </Button>
+            </Box>
           ) : (
             /* Empty state */
             <Box

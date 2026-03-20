@@ -10,6 +10,8 @@ const useNotesStore = create((set, get) => ({
   folders: [], // all folders from IndexedDB
   activeNoteId: null, // currently open note id
   activeFolderId: null, // currently selected folder id
+  sharedNoteLoading: false,
+  sharedNoteError: null,
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
@@ -191,6 +193,8 @@ const useNotesStore = create((set, get) => ({
       return { notes: [updatedNote, ...s.notes] };
     });
   },
+  setSharedNoteLoading: (loading) => set({ sharedNoteLoading: loading }),
+  setSharedNoteError: (error) => set({ sharedNoteError: error }),
 }));
 
 export default useNotesStore;

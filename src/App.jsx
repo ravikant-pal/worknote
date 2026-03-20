@@ -75,42 +75,59 @@ async function importSharedNote(noteId, shareKey) {
   const useNotes = (await import('./stores/useNotesStore')).default;
   const { getConnectedRelays } = await import('./services/nostr/client');
 
-  // Already have it locally — just activate
+  const { setSharedNoteLoading, setSharedNoteError } = useNotes.getState();
+
+  // Already have it locally — just activate, no loading needed
   const existing = await db.notes.get(noteId);
   if (existing) {
     useNotes.getState().setActiveNote(noteId);
     return;
   }
 
-  // Wait up to 5 seconds for at least one relay to connect
-  let attempts = 0;
-  while (getConnectedRelays().length === 0 && attempts < 10) {
-    await new Promise((r) => setTimeout(r, 500));
-    attempts++;
-  }
+  // Show loading state
+  setSharedNoteLoading(true);
+  setSharedNoteError(null);
 
-  if (getConnectedRelays().length === 0) {
-    console.warn(
-      '[share] no relays connected after waiting, cannot fetch note'
-    );
-    return;
-  }
+  try {
+    // Wait up to 5 seconds for relay connection
+    let attempts = 0;
+    while (getConnectedRelays().length === 0 && attempts < 10) {
+      await new Promise((r) => setTimeout(r, 500));
+      attempts++;
+    }
 
-  const note = await fetchNoteById(noteId, shareKey);
-  if (!note) {
-    console.warn('[share] note not found on relays:', noteId);
-    return;
-  }
+    if (getConnectedRelays().length === 0) {
+      setSharedNoteError(
+        'Could not connect to any relay. Check your internet connection and try again.'
+      );
+      return;
+    }
 
-  await db.notes.put({
-    ...note,
-    shareKey: shareKey ?? null,
-    writerPubkeys: [],
-    syncContent: '',
-    createdAt: note.updatedAt,
-  });
-  useNotes.getState().init();
-  useNotes.getState().setActiveNote(noteId);
+    const note = await fetchNoteById(noteId, shareKey);
+
+    if (!note) {
+      setSharedNoteError(
+        'Note not found. It may have been deleted or the link may be invalid.'
+      );
+      return;
+    }
+
+    await db.notes.put({
+      ...note,
+      shareKey: shareKey ?? null,
+      writerPubkeys: [],
+      syncContent: '',
+      createdAt: note.updatedAt,
+    });
+
+    await useNotes.getState().init();
+    useNotes.getState().setActiveNote(noteId);
+  } catch (err) {
+    setSharedNoteError('Something went wrong loading the shared note.');
+    console.error('[share] import error:', err);
+  } finally {
+    setSharedNoteLoading(false);
+  }
 }
 
 // ── Root: owns theme state ─────────────────────────────────────────────────────

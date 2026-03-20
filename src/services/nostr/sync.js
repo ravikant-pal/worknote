@@ -34,22 +34,39 @@ export async function queueFolderSync(folderId) {
 /**
  * Flush pending sync queue — call this when relay connection is confirmed.
  */
+// REPLACE flushQueue entirely:
 export async function flushQueue(identity) {
   const pending = await db.syncQueue.toArray();
+  if (!pending.length) return;
+
   for (const item of pending) {
     try {
       let event;
+
       if (item.type === 'note') {
         const note = await db.notes.get(item.resourceId);
         if (!note) {
           await db.syncQueue.delete(item.seq);
           continue;
         }
+
+        // Use syncContent if available (encrypted private notes)
+        // Fall back to raw content for public notes
+        const contentToPublish = note.isPublic
+          ? note.content // raw BlockNote JSON
+          : note.syncContent || note.content; // encrypted or raw
+
+        if (!contentToPublish) {
+          console.warn('[sync] skipping note with no content:', note.id);
+          await db.syncQueue.delete(item.seq);
+          continue;
+        }
+
         event = buildNoteEvent({
           privkeyHex: identity.privkeyHex,
           noteId: note.id,
-          title: note.title,
-          content: note.syncContent, // pre-encrypted or raw JSON
+          title: note.title || 'Untitled',
+          content: contentToPublish,
           folderId: note.folderId,
           isPublic: note.isPublic,
           writerPubkeys: note.writerPubkeys ?? [],
@@ -60,6 +77,7 @@ export async function flushQueue(identity) {
           await db.syncQueue.delete(item.seq);
           continue;
         }
+
         event = buildFolderEvent({
           privkeyHex: identity.privkeyHex,
           folderId: folder.id,
@@ -69,18 +87,33 @@ export async function flushQueue(identity) {
         });
       }
 
+      if (!event) continue;
+
+      console.log('[sync] publishing event:', event.id, 'kind:', event.kind);
       const result = await publishEvent(event);
+
       if (result.ok) {
+        console.log('[sync] ✅ published:', item.resourceId);
         await db.syncQueue.delete(item.seq);
         if (item.type === 'note') {
-          await db.notes.update(item.resourceId, { nostrEventId: event.id });
+          await db.notes.update(item.resourceId, {
+            nostrEventId: event.id,
+            authorPubkey: identity.pubkeyHex,
+          });
         }
       } else {
-        await db.syncQueue.update(item.seq, { retries: item.retries + 1 });
+        console.warn(
+          '[sync] ❌ publish failed for:',
+          item.resourceId,
+          result.err
+        );
+        await db.syncQueue.update(item.seq, {
+          retries: (item.retries ?? 0) + 1,
+        });
       }
     } catch (err) {
-      console.warn('[sync] flush error for', item.resourceId, err);
-      await db.syncQueue.update(item.seq, { retries: item.retries + 1 });
+      console.error('[sync] flush error for', item.resourceId, err);
+      await db.syncQueue.update(item.seq, { retries: (item.retries ?? 0) + 1 });
     }
   }
 }
