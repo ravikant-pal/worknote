@@ -19,12 +19,10 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { hexFromNpub } from '../services/nostr/identity';
-import useIdentityStore from '../stores/useIdentityStore';
 import useNotesStore from '../stores/useNotesStore';
 
 export default function ShareDialog({ open, onClose, noteId }) {
   const { notes, shareNote, addWriter, removeWriter } = useNotesStore();
-  const { identity } = useIdentityStore();
   const note = notes.find((n) => n.id === noteId);
 
   const [shareUrl, setShareUrl] = useState('');
@@ -74,7 +72,7 @@ export default function ShareDialog({ open, onClose, noteId }) {
       onClose={onClose}
       maxWidth='xs'
       fullWidth
-      PaperProps={{ sx: { borderRadius: 3 } }}
+      PaperProps={{ sx: { borderRadius: 3, bgcolor: 'background.paper' } }}
     >
       <DialogTitle sx={{ typography: 'h3', pb: 1 }}>Share note</DialogTitle>
 
@@ -88,13 +86,13 @@ export default function ShareDialog({ open, onClose, noteId }) {
               justifyContent: 'space-between',
               p: 1.5,
               borderRadius: 2,
-              bgcolor: isPublic ? 'primary.50' : 'grey.50',
+              bgcolor: 'background.default',
               border: '1px solid',
-              borderColor: isPublic ? 'primary.200' : 'divider',
+              borderColor: isPublic ? 'primary.main' : 'divider',
             }}
           >
             <Box>
-              <Typography variant='body2' fontWeight={500}>
+              <Typography variant='body2' fontWeight={500} color='text.primary'>
                 {isPublic ? 'Public note' : 'Private note'}
               </Typography>
               <Typography variant='caption' color='text.secondary'>
@@ -135,7 +133,7 @@ export default function ShareDialog({ open, onClose, noteId }) {
                   borderRadius: 2,
                   border: '1px solid',
                   borderColor: 'divider',
-                  bgcolor: 'background.paper',
+                  bgcolor: 'background.default',
                 }}
               >
                 <LinkIcon
@@ -144,7 +142,12 @@ export default function ShareDialog({ open, onClose, noteId }) {
                 <Typography
                   variant='caption'
                   noWrap
-                  sx={{ flex: 1, fontFamily: 'monospace', fontSize: '0.7rem' }}
+                  sx={{
+                    flex: 1,
+                    fontFamily: 'monospace',
+                    fontSize: '0.7rem',
+                    color: 'text.secondary',
+                  }}
                 >
                   {shareUrl}
                 </Typography>
@@ -178,7 +181,7 @@ export default function ShareDialog({ open, onClose, noteId }) {
 
           <Divider />
 
-          {/* Write access */}
+          {/* Collaborators */}
           <Box>
             <Typography
               variant='caption'
@@ -194,7 +197,6 @@ export default function ShareDialog({ open, onClose, noteId }) {
               Collaborators (edit access)
             </Typography>
 
-            {/* Existing writers */}
             {(note.writerPubkeys ?? []).length > 0 && (
               <Box
                 sx={{ mb: 1.5, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}
@@ -211,7 +213,6 @@ export default function ShareDialog({ open, onClose, noteId }) {
               </Box>
             )}
 
-            {/* Add writer */}
             <Box sx={{ display: 'flex', gap: 1 }}>
               <TextField
                 size='small'

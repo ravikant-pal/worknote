@@ -141,8 +141,8 @@ const useNotesStore = create((set, get) => ({
     await queueNoteSync(noteId);
 
     // Return the shareable URL fragment
-    const baseUrl = `${window.location.origin}/note/${noteId}`;
-    return isPublic ? baseUrl : `${baseUrl}#${shareKey}`;
+    const base = `${window.location.origin}${import.meta.env.BASE_URL}#/note/${noteId}`;
+    return isPublic ? base : `${base}?key=${shareKey}`;
   },
 
   /**

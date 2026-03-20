@@ -37,11 +37,11 @@ function AppInit() {
     const match = location.pathname.match(/^\/note\/([^/]+)$/);
     if (!match) return;
     const noteId = match[1];
-    const shareKey = location.hash.startsWith('#')
-      ? location.hash.slice(1)
-      : null;
+    // With HashRouter, share key is a query param: ?key=...
+    const params = new URLSearchParams(location.search);
+    const shareKey = params.get('key');
     importSharedNote(noteId, shareKey);
-  }, [isLoaded, identity, location.pathname]);
+  }, [isLoaded, identity, location.pathname, location.search]);
 
   if (!isLoaded) {
     return (
