@@ -1,9 +1,7 @@
 # WorkNote
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ravikant-pal/worknote/main/public/worknote-app-icon.svg" alt="WorkNote Icon" width="96" height="96" />
-  <br/>
-  <img src="https://raw.githubusercontent.com/ravikant-pal/worknote/main/public/worknote-logo-light.svg" alt="WorkNote" height="48" />
+  <img src="https://raw.githubusercontent.com/ravikant-pal/worknote/main/public/worknote-logo-dark.svg" alt="WorkNote" height="90" />
 </p>
 
 <p align="center">
