@@ -68,7 +68,9 @@ export default function Sidebar({ onNoteSelect, onClose }) {
           <Box
             component='img'
             src={
-              isDark ? '/worknote-logo-dark.svg' : '/worknote-logo-light.svg'
+              isDark
+                ? `${import.meta.env.BASE_URL}worknote-logo-dark.svg`
+                : `${import.meta.env.BASE_URL}worknote-logo-light.svg`
             }
             alt='WorkNote'
             sx={{ height: 48, maxWidth: 160, objectFit: 'contain' }}

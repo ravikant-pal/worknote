@@ -66,7 +66,7 @@ export default function OnboardingPage() {
         <Box sx={{ textAlign: 'center', mb: 3 }}>
           <Box
             component='img'
-            src='/worknote-app-icon.svg'
+            src={`${import.meta.env.BASE_URL}worknote-app-icon.svg`}
             alt='WorkNote'
             sx={{ width: 50, height: 50 }}
           />
