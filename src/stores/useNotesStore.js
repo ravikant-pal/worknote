@@ -111,6 +111,19 @@ const useNotesStore = create((set, get) => ({
     return notes.find((n) => n.id === activeNoteId) ?? null;
   },
 
+  canEditNote: (noteId, identityPubkey) => {
+    const { notes } = get();
+    const note = notes.find((n) => n.id === noteId);
+    if (!note || !identityPubkey) return false;
+    // Own note (no author set yet = local draft)
+    if (!note.authorPubkey) return true;
+    // Owner
+    if (note.authorPubkey === identityPubkey) return true;
+    // Named writer
+    if (note.writerPubkeys?.includes(identityPubkey)) return true;
+    return false;
+  },
+
   // ── Sharing ────────────────────────────────────────────────────────────────
 
   /**

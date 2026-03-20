@@ -84,14 +84,13 @@ async function importSharedNote(noteId, shareKey) {
     return;
   }
 
-  // Show loading state
   setSharedNoteLoading(true);
   setSharedNoteError(null);
 
   try {
-    // Wait up to 5 seconds for relay connection
+    // Wait up to 8 seconds for relay connection
     let attempts = 0;
-    while (getConnectedRelays().length === 0 && attempts < 10) {
+    while (getConnectedRelays().length === 0 && attempts < 16) {
       await new Promise((r) => setTimeout(r, 500));
       attempts++;
     }
@@ -103,22 +102,37 @@ async function importSharedNote(noteId, shareKey) {
       return;
     }
 
-    const note = await fetchNoteById(noteId, shareKey);
+    console.log('[share] connected relays:', getConnectedRelays());
+
+    // Retry up to 5 times with 2s delay — relay may need a moment to index
+    const note = await fetchNoteById(noteId, shareKey, {
+      retries: 5,
+      delayMs: 2000,
+    });
 
     if (!note) {
       setSharedNoteError(
-        'Note not found. It may have been deleted or the link may be invalid.'
+        'Note not found on the network. The publisher may be on different relays — ask them to reshare the link.'
       );
       return;
     }
 
-    await db.notes.put({
-      ...note,
-      shareKey: shareKey ?? null,
-      writerPubkeys: [],
-      syncContent: '',
-      createdAt: note.updatedAt,
-    });
+    // Only write if remote is newer or we don't have it locally
+    const localRecord = await db.notes.get(noteId);
+    if (!localRecord || localRecord.updatedAt < note.updatedAt) {
+      await db.notes.put({
+        ...note,
+        // Never overwrite these from remote
+        shareKey: localRecord?.shareKey ?? note.shareKey ?? shareKey ?? null,
+        writerPubkeys: note.writerPubkeys?.length
+          ? note.writerPubkeys
+          : (localRecord?.writerPubkeys ?? []),
+        syncContent: localRecord?.syncContent ?? '',
+        createdAt: localRecord?.createdAt ?? note.createdAt,
+      });
+    } else {
+      console.log('[share] local version is newer, skipping overwrite');
+    }
 
     await useNotes.getState().init();
     useNotes.getState().setActiveNote(noteId);

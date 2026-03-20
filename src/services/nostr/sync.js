@@ -1,11 +1,39 @@
+import { Relay } from 'nostr-tools';
 import db from '../db';
-import { fetchEvents, publishEvent, subscribe } from './client';
+import { fetchEvents, getConnectedRelays, publishEvent } from './client';
 import {
   buildFolderEvent,
   buildNoteEvent,
   decryptContent,
   KIND_NOTE,
 } from './events';
+
+// ADD this helper at the top of sync.js:
+function parseNoteFromEvent(event, content, existing) {
+  const titleTag = event.tags.find((t) => t[0] === 'title');
+  const folderTag = event.tags.find((t) => t[0] === 'folder');
+  // Writers are tagged as: ['p', '<pubkey>', '', 'writer']
+  const writerPubkeys = event.tags
+    .filter((t) => t[0] === 'p' && t[3] === 'writer')
+    .map((t) => t[1]);
+
+  return {
+    id: event.tags.find((t) => t[0] === 'd')?.[1],
+    title: titleTag?.[1] ?? existing?.title ?? 'Untitled',
+    content,
+    folderId: folderTag?.[1] ?? existing?.folderId ?? null,
+    isPublic: event.tags.some((t) => t[0] === 't' && t[1] === 'public'),
+    authorPubkey: event.pubkey,
+    nostrEventId: event.id,
+    writerPubkeys, // ← parsed from event
+    updatedAt: event.created_at * 1000,
+    // Preserve local createdAt if exists, otherwise use event time
+    createdAt: existing?.createdAt ?? event.created_at * 1000,
+    // Preserve local shareKey — relay doesn't store it
+    shareKey: existing?.shareKey ?? null,
+    syncContent: existing?.syncContent ?? '',
+  };
+}
 
 // ── Publish ───────────────────────────────────────────────────────────────────
 
@@ -50,17 +78,25 @@ export async function flushQueue(identity) {
           continue;
         }
 
-        // Use syncContent if available (encrypted private notes)
-        // Fall back to raw content for public notes
         const contentToPublish = note.isPublic
-          ? note.content // raw BlockNote JSON
-          : note.syncContent || note.content; // encrypted or raw
+          ? note.content
+          : note.syncContent || note.content;
 
         if (!contentToPublish) {
-          console.warn('[sync] skipping note with no content:', note.id);
           await db.syncQueue.delete(item.seq);
           continue;
         }
+
+        // Always include the original author in writerPubkeys
+        // so they never lose edit access when a collaborator publishes
+        const writerPubkeys = [
+          ...new Set(
+            [
+              ...(note.writerPubkeys ?? []),
+              note.authorPubkey, // ← preserve original author
+            ].filter(Boolean)
+          ),
+        ].filter((pk) => pk !== identity.pubkeyHex); // don't add self as writer
 
         event = buildNoteEvent({
           privkeyHex: identity.privkeyHex,
@@ -69,7 +105,7 @@ export async function flushQueue(identity) {
           content: contentToPublish,
           folderId: note.folderId,
           isPublic: note.isPublic,
-          writerPubkeys: note.writerPubkeys ?? [],
+          writerPubkeys,
         });
       } else if (item.type === 'folder') {
         const folder = await db.folders.get(item.resourceId);
@@ -127,41 +163,41 @@ export async function flushQueue(identity) {
  * Returns an unsubscribe function.
  */
 export function subscribeToNote(noteId, shareKeyHex, onUpdate) {
-  return subscribe({
-    filters: [{ kinds: [KIND_NOTE], '#d': [noteId] }],
-    onEvent: async (event) => {
-      const existing = await db.notes.get(noteId);
+  const relays = getConnectedRelays();
+  const unsubs = [];
 
-      // Ignore if we already have a newer version
-      if (existing && existing.updatedAt >= event.created_at * 1000) return;
+  relays.forEach(async (url) => {
+    try {
+      const relay = await Relay.connect(url);
+      const sub = relay.subscribe([{ kinds: [KIND_NOTE], '#d': [noteId] }], {
+        onevent: async (event) => {
+          const existing = await db.notes.get(noteId);
 
-      let content = event.content;
-      if (shareKeyHex) {
-        try {
-          content = await decryptContent(event.content, shareKeyHex);
-        } catch {
-          return;
-        } // wrong key — ignore
-      }
+          // Ignore if we already have this version or newer
+          if (existing && existing.updatedAt >= event.created_at * 1000) return;
 
-      const titleTag = event.tags.find((t) => t[0] === 'title');
-      const folderTag = event.tags.find((t) => t[0] === 'folder');
+          let content = event.content;
+          if (shareKeyHex) {
+            try {
+              content = await decryptContent(event.content, shareKeyHex);
+            } catch {
+              return;
+            }
+          }
 
-      const updated = {
-        id: noteId,
-        title: titleTag?.[1] ?? existing?.title ?? 'Untitled',
-        content: content,
-        folderId: folderTag?.[1] ?? existing?.folderId ?? null,
-        isPublic: event.tags.some((t) => t[0] === 't' && t[1] === 'public'),
-        authorPubkey: event.pubkey,
-        nostrEventId: event.id,
-        updatedAt: event.created_at * 1000,
-      };
-
-      await db.notes.put(updated);
-      onUpdate(updated);
-    },
+          const updated = parseNoteFromEvent(event, content, existing);
+          await db.notes.put(updated);
+          onUpdate(updated);
+          console.log('[sync] 🔄 remote update received for:', noteId);
+        },
+      });
+      unsubs.push(() => sub.close());
+    } catch (err) {
+      console.warn('[sync] subscribeToNote failed for relay:', url, err);
+    }
   });
+
+  return () => unsubs.forEach((fn) => fn());
 }
 
 // ── Fetch a note by ID from relays (share link import) ────────────────────────
@@ -170,35 +206,62 @@ export function subscribeToNote(noteId, shareKeyHex, onUpdate) {
  * Fetch a note from relays by its UUID.
  * Used when a user opens a share link for the first time.
  */
-export async function fetchNoteById(noteId, shareKeyHex) {
-  const events = await fetchEvents([{ kinds: [KIND_NOTE], '#d': [noteId] }]);
-  if (!events.length) return null;
+export async function fetchNoteById(
+  noteId,
+  shareKeyHex,
+  { retries = 5, delayMs = 2000 } = {}
+) {
+  console.log(
+    '[sync] fetching note:',
+    noteId,
+    'from relays:',
+    getConnectedRelays()
+  );
 
-  // Pick the most recent event
-  const event = events.sort((a, b) => b.created_at - a.created_at)[0];
+  // Load existing local record to preserve fields
+  const existing = await db.notes.get(noteId).catch(() => null);
 
-  let content = event.content;
-  if (shareKeyHex) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    console.log(`[sync] fetch attempt ${attempt}/${retries}`);
+
     try {
-      content = await decryptContent(event.content, shareKeyHex);
-    } catch {
-      return null;
-    } // bad key
+      const events = await fetchEvents([
+        {
+          kinds: [KIND_NOTE],
+          '#d': [noteId],
+          limit: 10,
+        },
+      ]);
+
+      console.log(`[sync] got ${events.length} events for note:`, noteId);
+
+      if (events.length > 0) {
+        const event = events.sort((a, b) => b.created_at - a.created_at)[0];
+
+        let content = event.content;
+        if (shareKeyHex) {
+          try {
+            content = await decryptContent(event.content, shareKeyHex);
+          } catch (e) {
+            console.warn('[sync] decryption failed:', e);
+            return null;
+          }
+        }
+
+        return parseNoteFromEvent(event, content, existing);
+      }
+    } catch (err) {
+      console.warn(`[sync] fetch attempt ${attempt} error:`, err);
+    }
+
+    if (attempt < retries) {
+      console.log(`[sync] retrying in ${delayMs}ms…`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
   }
 
-  const titleTag = event.tags.find((t) => t[0] === 'title');
-  const folderTag = event.tags.find((t) => t[0] === 'folder');
-
-  return {
-    id: noteId,
-    title: titleTag?.[1] ?? 'Shared Note',
-    content,
-    folderId: folderTag?.[1] ?? null,
-    isPublic: event.tags.some((t) => t[0] === 't' && t[1] === 'public'),
-    authorPubkey: event.pubkey,
-    nostrEventId: event.id,
-    updatedAt: event.created_at * 1000,
-  };
+  console.warn('[sync] note not found after', retries, 'attempts:', noteId);
+  return null;
 }
 
 // ── Search public notes by title ──────────────────────────────────────────────

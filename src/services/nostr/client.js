@@ -1,4 +1,4 @@
-import { SimplePool } from 'nostr-tools';
+import { Relay, SimplePool } from 'nostr-tools';
 
 // ── Relay Pool ────────────────────────────────────────────────────────────────
 // Single shared pool across the entire app lifetime
@@ -47,14 +47,33 @@ export async function disconnectAll() {
  * Returns a promise that resolves when at least one relay confirms.
  */
 export async function publishEvent(signedEvent) {
-  const p = getPool();
-  try {
-    await Promise.any(p.publish(connectedRelays, signedEvent));
-    return { ok: true };
-  } catch (err) {
-    console.warn('[nostr] publish failed:', err);
-    return { ok: false, err };
-  }
+  const errors = [];
+
+  // Try each relay individually with proper await for confirmation
+  const results = await Promise.allSettled(
+    connectedRelays.map(async (url) => {
+      const relay = await Relay.connect(url);
+      await relay.publish(signedEvent);
+      console.log('[nostr] ✅ confirmed by:', url);
+      return url;
+    })
+  );
+
+  const successful = results
+    .filter((r) => r.status === 'fulfilled')
+    .map((r) => r.value);
+
+  const failed = results
+    .filter((r) => r.status === 'rejected')
+    .map((r) => r.reason);
+
+  if (failed.length) console.warn('[nostr] ❌ failed relays:', failed);
+
+  return {
+    ok: successful.length > 0,
+    successful,
+    failed,
+  };
 }
 
 // ── Subscribe ─────────────────────────────────────────────────────────────────
@@ -76,11 +95,39 @@ export function subscribe({ filters, onEvent, onEose }) {
 }
 
 /**
- * One-shot fetch — returns array of events, closes subscription after EOSE.
+ * Fetch events using subscribeMany with explicit EOSE + timeout.
+ * More reliable than querySync which can silently timeout on lazy connections.
  */
-export async function fetchEvents(filters) {
-  const p = getPool();
-  return p.querySync(connectedRelays, filters);
+export async function fetchEvents(filters, timeoutMs = 8000) {
+  const events = new Map();
+
+  await Promise.allSettled(
+    connectedRelays.map(async (url) => {
+      try {
+        const relay = await Relay.connect(url);
+
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, timeoutMs);
+
+          const sub = relay.subscribe(filters, {
+            onevent: (event) => {
+              events.set(event.id, event);
+            },
+            oneose: () => {
+              clearTimeout(timer);
+              sub.close();
+              resolve();
+            },
+          });
+        });
+      } catch (err) {
+        console.warn('[nostr] fetchEvents failed for relay:', url, err);
+      }
+    })
+  );
+
+  console.log('[sync] total events fetched:', events.size);
+  return Array.from(events.values());
 }
 
 // ── Relay Status Listeners ────────────────────────────────────────────────────

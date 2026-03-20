@@ -1,4 +1,6 @@
 import { MantineProvider } from '@mantine/core';
+import CloudDoneIcon from '@mui/icons-material/CloudDone';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import LockIcon from '@mui/icons-material/Lock';
 import MenuIcon from '@mui/icons-material/Menu';
 import PublicIcon from '@mui/icons-material/Public';
@@ -6,6 +8,8 @@ import ShareIcon from '@mui/icons-material/Share';
 import {
   Alert,
   Box,
+  Button,
+  Chip,
   Drawer,
   IconButton,
   Snackbar,
@@ -15,11 +19,16 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
+import CircularProgress from '@mui/material/CircularProgress';
 import LinearProgress from '@mui/material/LinearProgress';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { queueNoteSync } from '../services/nostr/sync';
+
+import { useNavigate } from 'react-router-dom';
 import ShareDialog from '../components/ShareDialog';
 import Sidebar from '../components/Sidebar/Sidebar';
 import WorkNoteEditor from '../editor/WorkNoteEditor';
+import { subscribeToNote } from '../services/nostr/sync';
 import useIdentityStore from '../stores/useIdentityStore';
 import useNotesStore from '../stores/useNotesStore';
 import useSyncStore from '../stores/useSyncStore';
@@ -27,13 +36,17 @@ import useSyncStore from '../stores/useSyncStore';
 export default function NotesPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const navigate = useNavigate();
 
   const {
+    notes,
     activeNoteId,
     updateNote,
     getActiveNote,
     sharedNoteLoading,
     sharedNoteError,
+    applyRemoteNote,
+    canEditNote,
   } = useNotesStore();
   const { identity } = useIdentityStore();
   const { sync } = useSyncStore();
@@ -44,12 +57,18 @@ export default function NotesPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
   const [syncToast, setSyncToast] = useState(false);
+  const [remoteUpdateToast, setRemoteUpdateToast] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishedOk, setPublishedOk] = useState(false);
+  const [remoteVersion, setRemoteVersion] = useState(0);
 
   // ── Refs to avoid stale closures in debounced callbacks ──────────────────
   const activeNoteIdRef = useRef(activeNoteId);
   const titleRef = useRef(title);
   const timerTitle = useRef(null);
   const timerContent = useRef(null);
+
+  const editable = canEditNote(activeNoteId, identity?.pubkeyHex);
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
@@ -70,10 +89,56 @@ export default function NotesPage() {
     if (isMobile && activeNoteId) setSidebarOpen(false);
   }, [activeNoteId, isMobile]);
 
+  useEffect(() => {
+    if (!activeNoteId) return;
+
+    const note = notes.find((n) => n.id === activeNoteId);
+    if (!note) return;
+
+    // Only subscribe if note is shared (has been published)
+    if (!note.nostrEventId) return;
+
+    console.log('[collab] subscribing to note:', activeNoteId);
+
+    const unsub = subscribeToNote(
+      activeNoteId,
+      note.shareKey ?? null,
+      (updatedNote) => {
+        applyRemoteNote(updatedNote);
+        setRemoteUpdateToast(true);
+        // If this note is currently open, bump version to force editor reload
+        if (updatedNote.id === activeNoteIdRef.current) {
+          setRemoteVersion((v) => v + 1);
+        }
+      }
+    );
+
+    return () => {
+      console.log('[collab] unsubscribing from note:', activeNoteId);
+      unsub();
+    };
+  }, [activeNoteId]);
+
+  const handlePublish = async () => {
+    if (!activeNoteId || !identity) return;
+    setPublishing(true);
+    try {
+      await queueNoteSync(activeNoteId);
+      await sync(identity);
+      setPublishedOk(true);
+      setTimeout(() => setPublishedOk(false), 3000);
+    } catch (err) {
+      console.error('[publish] failed:', err);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   // ── Debounced saves using refs so noteId is never stale ─────────────────
 
   const handleTitleChange = useCallback(
     (e) => {
+      if (!canEditNote(activeNoteIdRef.current, identity?.pubkeyHex)) return;
       const val = e.target.value;
       setTitle(val);
       clearTimeout(timerTitle.current);
@@ -91,6 +156,7 @@ export default function NotesPage() {
 
   const handleContentChange = useCallback(
     (json) => {
+      if (!canEditNote(activeNoteIdRef.current, identity?.pubkeyHex)) return; // ← add this
       clearTimeout(timerContent.current);
       timerContent.current = setTimeout(async () => {
         const id = activeNoteIdRef.current;
@@ -197,6 +263,22 @@ export default function NotesPage() {
                   )}
                 </Tooltip>
 
+                {!editable && (
+                  <Chip
+                    label='Read only'
+                    size='small'
+                    sx={{
+                      flexShrink: 0,
+                      height: 22,
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      bgcolor: 'warning.main',
+                      color: '#fff',
+                      borderRadius: 1,
+                    }}
+                  />
+                )}
+
                 {/* Editable title */}
                 <TextField
                   variant='standard'
@@ -213,6 +295,57 @@ export default function NotesPage() {
                     },
                   }}
                 />
+
+                {editable &&
+                  (isMobile ? (
+                    <Tooltip
+                      title={publishedOk ? 'Published!' : 'Publish to network'}
+                    >
+                      <IconButton
+                        size='small'
+                        onClick={handlePublish}
+                        disabled={publishing}
+                        sx={{
+                          flexShrink: 0,
+                          color: publishedOk
+                            ? 'success.main'
+                            : 'text.secondary',
+                        }}
+                      >
+                        {publishing ? (
+                          <CircularProgress size={16} />
+                        ) : publishedOk ? (
+                          <CloudDoneIcon fontSize='small' />
+                        ) : (
+                          <CloudUploadIcon fontSize='small' />
+                        )}
+                      </IconButton>
+                    </Tooltip>
+                  ) : (
+                    <Button
+                      size='small'
+                      variant={publishedOk ? 'contained' : 'outlined'}
+                      color={publishedOk ? 'success' : 'primary'}
+                      onClick={handlePublish}
+                      disabled={publishing}
+                      startIcon={
+                        publishing ? (
+                          <CircularProgress size={14} />
+                        ) : publishedOk ? (
+                          <CloudDoneIcon sx={{ fontSize: 16 }} />
+                        ) : (
+                          <CloudUploadIcon sx={{ fontSize: 16 }} />
+                        )
+                      }
+                      sx={{ flexShrink: 0, fontSize: '0.8rem', py: 0.5 }}
+                    >
+                      {publishing
+                        ? 'Publishing…'
+                        : publishedOk
+                          ? 'Published!'
+                          : 'Publish'}
+                    </Button>
+                  ))}
 
                 {/* Share */}
                 <Tooltip title='Share'>
@@ -237,10 +370,10 @@ export default function NotesPage() {
                 }}
               >
                 <WorkNoteEditor
-                  noteId={activeNoteId}
+                  noteId={`${activeNoteId}-${remoteVersion}`}
                   content={activeNote.content}
                   onChange={handleContentChange}
-                  readOnly={false}
+                  readOnly={!editable}
                 />
               </Box>
             </>
@@ -365,6 +498,21 @@ export default function NotesPage() {
       >
         <Alert severity='success' sx={{ borderRadius: 2 }}>
           Note synced
+        </Alert>
+      </Snackbar>
+      <Snackbar
+        open={remoteUpdateToast}
+        autoHideDuration={3000}
+        onClose={() => setRemoteUpdateToast(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert
+          severity='info'
+          icon='✏️'
+          sx={{ borderRadius: 2 }}
+          onClose={() => setRemoteUpdateToast(false)}
+        >
+          Note updated by a collaborator
         </Alert>
       </Snackbar>
     </MantineProvider>
