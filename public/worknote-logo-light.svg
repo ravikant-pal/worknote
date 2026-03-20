@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" fill="none">
+  <defs>
+    <linearGradient id="iconGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8B5FFF"/>
+      <stop offset="100%" stop-color="#5B2FEF"/>
+    </linearGradient>
+    <linearGradient id="nodeGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#BFA0FF"/>
+      <stop offset="100%" stop-color="#8B5FFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- App icon mark: rounded square background -->
+  <rect x="0" y="0" width="120" height="120" rx="26" fill="url(#iconGrad)"/>
+
+  <!-- W shape: constructed from 5 node dots + connecting strokes -->
+  <!-- W stroke paths -->
+  <polyline points="22,34 38,86 60,52 82,86 98,34"
+    stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.95"/>
+
+  <!-- Node dots at peaks and valley -->
+  <circle cx="22" cy="34" r="6.5" fill="url(#nodeGrad)"/>
+  <circle cx="98" cy="34" r="6.5" fill="url(#nodeGrad)"/>
+  <circle cx="60" cy="52" r="6.5" fill="url(#nodeGrad)"/>
+  <circle cx="38" cy="86" r="5" fill="white" opacity="0.7"/>
+  <circle cx="82" cy="86" r="5" fill="white" opacity="0.7"/>
+
+  <!-- Faint connector lines between top nodes (P2P hint) -->
+  <line x1="22" y1="34" x2="98" y2="34" stroke="white" stroke-width="1" opacity="0.18" stroke-dasharray="3 4"/>
+
+  <!-- Wordmark -->
+  <!-- "Work" in medium weight -->
+  <text x="145" y="64"
+    font-family="'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-size="42"
+    font-weight="500"
+    letter-spacing="-1"
+    fill="#1A1025">Work</text>
+
+  <!-- "Note" in bold, accent color -->
+  <text x="247" y="64"
+    font-family="'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-size="42"
+    font-weight="700"
+    letter-spacing="-1"
+    fill="#6C47FF">Note</text>
+
+  <!-- Tagline -->
+  <text x="146" y="88"
+    font-family="'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-size="13"
+    font-weight="400"
+    letter-spacing="0.5"
+    fill="#888">Decentralized · Serverless · Free forever</text>
+</svg>
