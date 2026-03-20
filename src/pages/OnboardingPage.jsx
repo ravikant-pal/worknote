@@ -66,9 +66,9 @@ export default function OnboardingPage() {
         <Box sx={{ textAlign: 'center', mb: 3 }}>
           <Box
             component='img'
-            src={`${import.meta.env.BASE_URL}worknote-app-icon.svg`}
+            src={`${import.meta.env.BASE_URL}worknote-logo-light.svg`}
             alt='WorkNote'
-            sx={{ width: 50, height: 50 }}
+            sx={{ height: 50, maxWidth: 160, objectFit: 'contain' }}
           />
           <Typography variant='h2'>Welcome to WorkNote</Typography>
           <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
