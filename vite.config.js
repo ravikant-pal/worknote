@@ -22,8 +22,8 @@ export default defineConfig({
         background_color: '#0f172a',
         display: 'standalone',
         orientation: 'portrait-primary',
-        scope: '/',
-        start_url: '/',
+        scope: '/worknote/',
+        start_url: '/worknote/',
         icons: [
           {
             src: 'worknote-app-icon.svg',
@@ -56,6 +56,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
         // Don't cache Nostr relay WebSocket traffic
         navigateFallback: 'index.html',
+        navigateFallbackAllowlist: [/^\/worknote/], // ← scope to your base path
         navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
