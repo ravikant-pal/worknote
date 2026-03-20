@@ -81,5 +81,5 @@ export async function updateRelays(relays) {
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
 export function defaultRelays() {
-  return ['wss://relay.primal.net'];
+  return ['wss://relay.primal.net', 'wss://relay.damus.io'];
 }
