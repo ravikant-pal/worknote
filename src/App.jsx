@@ -28,7 +28,14 @@ function AppInit() {
   useEffect(() => {
     if (!isLoaded) return;
     const onboarding = location.pathname === '/onboarding';
-    if (!identity && !onboarding) navigate('/onboarding', { replace: true });
+    if (!identity && !onboarding) {
+      // Save the share URL so we can return to it after onboarding
+      const fullHash = window.location.hash; // e.g. #/note/abc?key=xyz
+      if (fullHash.includes('/note/')) {
+        sessionStorage.setItem('worknote-pending-share', fullHash);
+      }
+      navigate('/onboarding', { replace: true });
+    }
     if (identity && onboarding) navigate('/', { replace: true });
   }, [isLoaded, identity]);
 
@@ -65,14 +72,36 @@ function AppInit() {
 async function importSharedNote(noteId, shareKey) {
   const { fetchNoteById } = await import('./services/nostr/sync');
   const { default: db } = await import('./services/db');
-  const useNotesStore = (await import('./stores/useNotesStore')).default;
+  const useNotes = (await import('./stores/useNotesStore')).default;
+  const { getConnectedRelays } = await import('./services/nostr/client');
+
+  // Already have it locally — just activate
   const existing = await db.notes.get(noteId);
   if (existing) {
-    useNotesStore.getState().setActiveNote(noteId);
+    useNotes.getState().setActiveNote(noteId);
     return;
   }
+
+  // Wait up to 5 seconds for at least one relay to connect
+  let attempts = 0;
+  while (getConnectedRelays().length === 0 && attempts < 10) {
+    await new Promise((r) => setTimeout(r, 500));
+    attempts++;
+  }
+
+  if (getConnectedRelays().length === 0) {
+    console.warn(
+      '[share] no relays connected after waiting, cannot fetch note'
+    );
+    return;
+  }
+
   const note = await fetchNoteById(noteId, shareKey);
-  if (!note) return;
+  if (!note) {
+    console.warn('[share] note not found on relays:', noteId);
+    return;
+  }
+
   await db.notes.put({
     ...note,
     shareKey: shareKey ?? null,
@@ -80,8 +109,8 @@ async function importSharedNote(noteId, shareKey) {
     syncContent: '',
     createdAt: note.updatedAt,
   });
-  useNotesStore.getState().init();
-  useNotesStore.getState().setActiveNote(noteId);
+  useNotes.getState().init();
+  useNotes.getState().setActiveNote(noteId);
 }
 
 // ── Root: owns theme state ─────────────────────────────────────────────────────

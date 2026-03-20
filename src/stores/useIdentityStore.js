@@ -39,15 +39,24 @@ const useIdentityStore = create((set, get) => ({
 
   createIdentity: async (displayName) => {
     const kp = generateKeypair();
-    const record = {
+    await saveIdentity({
       privkeyHex: kp.privkeyHex,
       pubkeyHex: kp.pubkeyHex,
       displayName,
-    };
-    await saveIdentity(record);
+    });
     const identity = await loadIdentity();
     connectRelays(identity.relays);
     set({ identity });
+
+    // Redirect to pending share link if one was saved
+    const pending = sessionStorage.getItem('worknote-pending-share');
+    if (pending) {
+      sessionStorage.removeItem('worknote-pending-share');
+      // Small delay to let relays connect first
+      setTimeout(() => {
+        window.location.hash = pending;
+      }, 1500);
+    }
   },
 
   // ── Update ─────────────────────────────────────────────────────────────────
