@@ -1,5 +1,9 @@
 import { create } from 'zustand';
-import { onRelaysChange } from '../services/nostr/client';
+import {
+  getLiveRelayCount,
+  getRelayStatuses,
+  onRelaysChange,
+} from '../services/nostr/client';
 import { flushQueue } from '../services/nostr/sync';
 
 const useSyncStore = create((set, get) => ({
@@ -17,10 +21,16 @@ const useSyncStore = create((set, get) => ({
    * Call once on app startup after identity.init().
    */
   init: () => {
-    const unsub = onRelaysChange((relays) => {
-      set({ connectedRelays: relays });
+    const unsub = onRelaysChange(() => {
+      const statuses = getRelayStatuses();
+      const liveCount = getLiveRelayCount();
+      set({
+        connectedRelays: Object.keys(statuses),
+        liveRelayCount: liveCount,
+        relayStatuses: statuses,
+      });
     });
-    return unsub; // call returned fn to stop listening (cleanup)
+    return unsub;
   },
 
   // ── Manual sync trigger ────────────────────────────────────────────────────

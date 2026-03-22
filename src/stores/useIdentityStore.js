@@ -3,6 +3,7 @@ import { connectRelays } from '../services/nostr/client';
 import {
   generateKeypair,
   loadIdentity,
+  resolveInitialRelays,
   saveIdentity,
   updateDisplayName,
   updateRelays,
@@ -39,20 +40,24 @@ const useIdentityStore = create((set, get) => ({
 
   createIdentity: async (displayName) => {
     const kp = generateKeypair();
+
+    // Pick best relays at signup time
+    const relays = await resolveInitialRelays();
+    console.log('[identity] initial relays selected:', relays);
+
     await saveIdentity({
       privkeyHex: kp.privkeyHex,
       pubkeyHex: kp.pubkeyHex,
       displayName,
+      relays,
     });
     const identity = await loadIdentity();
     connectRelays(identity.relays);
     set({ identity });
 
-    // Redirect to pending share link if one was saved
     const pending = sessionStorage.getItem('worknote-pending-share');
     if (pending) {
       sessionStorage.removeItem('worknote-pending-share');
-      // Small delay to let relays connect first
       setTimeout(() => {
         window.location.hash = pending;
       }, 1500);

@@ -6,10 +6,19 @@ import { Relay, SimplePool } from 'nostr-tools';
 let pool = null;
 let connectedRelays = [];
 const listeners = new Set(); // (relayUrls: string[]) => void
+const relayStatus = new Map(); // url → 'connecting' | 'connected' | 'error'
 
 export function getPool() {
   if (!pool) pool = new SimplePool();
   return pool;
+}
+
+export function getRelayStatuses() {
+  return Object.fromEntries(relayStatus);
+}
+
+export function getLiveRelayCount() {
+  return [...relayStatus.values()].filter((s) => s === 'connected').length;
 }
 
 // ── Connection ────────────────────────────────────────────────────────────────
@@ -18,10 +27,27 @@ export function getPool() {
  * Connect to a list of relay URLs.
  * SimplePool connects lazily on first use — this just stores the list.
  */
-export function connectRelays(relayUrls) {
+export async function connectRelays(relayUrls) {
   if (!relayUrls?.length) return;
   connectedRelays = [...relayUrls];
   notifyListeners();
+
+  // Probe each relay with a real connection
+  for (const url of relayUrls) {
+    relayStatus.set(url, 'connecting');
+    notifyListeners();
+    Relay.connect(url)
+      .then(() => {
+        relayStatus.set(url, 'connected');
+        console.log('[relay] ✅ connected:', url);
+        notifyListeners();
+      })
+      .catch(() => {
+        relayStatus.set(url, 'error');
+        console.warn('[relay] ❌ failed:', url);
+        notifyListeners();
+      });
+  }
 }
 
 export function getConnectedRelays() {

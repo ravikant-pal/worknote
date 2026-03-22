@@ -1,6 +1,7 @@
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import { bytesToHex, hexToBytes } from '../../utils/hex';
 import db from '../db';
+import { getBestRelays } from './relayHealth';
 
 // ── Key Generation ────────────────────────────────────────────────────────────
 
@@ -45,13 +46,18 @@ export function hexFromNsec(nsec) {
  * Save identity to IndexedDB profile table.
  * Never store privkey in plaintext in production — acceptable for MVP.
  */
-export async function saveIdentity({ privkeyHex, pubkeyHex, displayName }) {
+export async function saveIdentity({
+  privkeyHex,
+  pubkeyHex,
+  displayName,
+  relays,
+}) {
   await db.profile.put({
     id: 'me',
     privkeyHex,
     pubkeyHex,
     displayName: displayName ?? 'Anonymous',
-    relays: defaultRelays(),
+    relays: relays?.length ? relays : defaultRelays(), // ← use passed relays
     createdAt: Date.now(),
   });
 }
@@ -82,4 +88,16 @@ export async function updateRelays(relays) {
 
 export function defaultRelays() {
   return ['wss://relay.primal.net', 'wss://relay.damus.io'];
+}
+
+/**
+ * Call this on first identity creation to get the best relays
+ * at that moment rather than hardcoded ones.
+ */
+export async function resolveInitialRelays() {
+  try {
+    return await getBestRelays(3);
+  } catch {
+    return defaultRelays();
+  }
 }

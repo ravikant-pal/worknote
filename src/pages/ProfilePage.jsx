@@ -1,8 +1,10 @@
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import SpeedIcon from '@mui/icons-material/Speed';
 import {
   Box,
   Button,
+  CircularProgress,
   IconButton,
   Paper,
   Snackbar,
@@ -12,6 +14,8 @@ import {
   Typography,
 } from '@mui/material';
 import { useState } from 'react';
+import { clearRelayCache, getBestRelays } from '../services/nostr/relayHealth';
+
 import { useNavigate } from 'react-router-dom';
 import { npubFromHex, nsecFromHex } from '../services/nostr/identity';
 import useIdentityStore from '../stores/useIdentityStore';
@@ -29,6 +33,8 @@ export default function ProfilePage() {
   const [saved, setSaved] = useState(false);
   const [nsecVisible, setNsecVisible] = useState(false);
   const [copied, setCopied] = useState('');
+  const [probing, setProbing] = useState(false);
+  const [probeResult, setProbeResult] = useState(null);
 
   if (!identity) return null;
 
@@ -49,6 +55,21 @@ export default function ProfilePage() {
     navigator.clipboard.writeText(text);
     setCopied(label);
     setTimeout(() => setCopied(''), 2000);
+  };
+
+  const handleAutoDetect = async () => {
+    setProbing(true);
+    setProbeResult(null);
+    clearRelayCache();
+    try {
+      const best = await getBestRelays(3);
+      setRelayInput(best.join('\n'));
+      setProbeResult(`Found ${best.length} fast relays`);
+    } catch {
+      setProbeResult('Could not reach nostr.watch — try again');
+    } finally {
+      setProbing(false);
+    }
   };
 
   const KeyField = ({ label, value, masked }) => (
@@ -158,6 +179,30 @@ export default function ProfilePage() {
             <Typography variant='body2' color='text.secondary' sx={{ mb: 2 }}>
               One relay URL per line (must start with wss://)
             </Typography>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}
+            >
+              <Button
+                size='small'
+                variant='outlined'
+                startIcon={
+                  probing ? (
+                    <CircularProgress size={14} />
+                  ) : (
+                    <SpeedIcon sx={{ fontSize: 16 }} />
+                  )
+                }
+                onClick={handleAutoDetect}
+                disabled={probing}
+              >
+                {probing ? 'Probing relays…' : 'Auto-detect fastest'}
+              </Button>
+              {probeResult && (
+                <Typography variant='caption' color='success.main'>
+                  ✅ {probeResult}
+                </Typography>
+              )}
+            </Box>
             <TextField
               fullWidth
               multiline
